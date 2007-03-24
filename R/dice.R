@@ -92,17 +92,20 @@ getOutcomeProb = function(ndice,
 
   listElemLengths = sapply(outcomeList, length)
 
-  outcomeProb = prod(listElemLengths/nsides);
+  outcomeProb = prod(listElemLengths/nsides)
+
+  # If order matters, the outcomeProb we've just calculated is our answer; otherwise, 
+  # we need to do some more work
 
   if (!orderMatters)
   {
-
     # We only calculate probabilities if each element of outcomeList is a length-1 vector
     # (i.e., a single number), e.g., {2, 3, 2}; if any element is longer than that, e.g.,
     # {2, {3, 4}, 2}, we call ourselves recursively on each list we can construct of only
     # length-1 vectors (e.g., in the example above we'd call ourselves on {2, 3, 2} and 
-    # {2, 4, 2}); then we sum the resulting probabilities to arrive at our probability 
-    # for the original list of {2, {3, 4}, 2}
+    # {2, 4, 2}); then we sum the resulting probabilities (which, since orderMatters is 
+    # FALSE, account for all permutations of each of {2, 3, 2} and {2, 4, 2}) to arrive 
+    # at our probability for the original list of {2, {3, 4}, 2}
 
     maxListElemLength = max(listElemLengths)
     if (maxListElemLength > 1)
@@ -126,7 +129,14 @@ getOutcomeProb = function(ndice,
       # Next we eliminate all rows that are permutations of other rows (otherwise we
       # would over-count in the calculations that follow)
 
-      combMatrix = unique(t(apply(combMatrix,1,sort)))
+      if (ndice > 1)
+      {
+        combMatrix = unique(t(apply(combMatrix,1,sort)))
+      }
+      else
+      {
+        combMatrix = unique(combMatrix)
+      }
 
       # Now we make a recursive call for each row of combMatrix and sum the resulting
       # probabilities to arrive at our probability for the original outcomeList

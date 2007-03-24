@@ -25,6 +25,7 @@ A single number representing the probability of getting an outcome that meets th
 \examples{
 
 \dontshow{
+stopifnot(all.equal(getOutcomeProb(1, 6, list(c(4, 5, 6))), .5, tolerance=.0001))
 stopifnot(all.equal(getOutcomeProb(4, 6, list(6, c(5, 6), c(4, 5, 6))), 0.1952160, tolerance=.0001))
 }
 

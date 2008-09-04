@@ -35,42 +35,71 @@
 }
 
 
+# This helper function returns the probabilities of each element of eventList
+
+.getEventListProbs = function(ndicePerRoll, nsidesPerDie, eventList)
+{
+  probs = getTotalProbs(ndicePerRoll, nsidesPerDie)$probabilities
+
+  # On the assumption that eventList has length nrolls (which is safe since this is a 
+  # private helper function), we calculate the probability of getting an acceptable 
+  # outcome (a "success") on each of the rolls by iterating through the vector of 
+  # successes for that roll and adding the corresponding probability to our tally
+
+  eventListProbs = c()
+  for (i in 1:length(eventList)) 
+  {
+    successesForThisRoll = sort(eventList[[i]])
+    successProbForThisRoll = 0
+    for (j in 1:length(successesForThisRoll))
+    {
+      successProbForThisRoll = successProbForThisRoll + probs[(successesForThisRoll[j] - (ndicePerRoll - 1)),2]
+    }
+    eventListProbs[i] = successProbForThisRoll
+  }
+  eventListProbs 
+}
+
+
 # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-# NOTE: the parameters ndice, nsides, and nkept in the two function signatures below
-# depart from our usual coding conventions (i.e., are not numDice, numSidesPerDie, 
-# and numDiceKept) so that they are easily abbreviated as "nd", "ns", and "nk", 
-# respectively, in function calls
 
-getOutcomeProb = function(ndice,
-                          nsides,
-                          outcomeList,
-                          orderMatters=FALSE)
+# NOTE: the parameters nrolls, ndicePerRoll, nsidesPerDie, and nkept in the function
+# signatures below depart slightly from our usual coding conventions (i.e., are not 
+# numRolls, numDicePerRoll, numSidesPerDie, and numDiceKept) so that they are easily 
+# abbreviated as "nr", "nd", "ns", and "nk", respectively, in function calls
+
+getEventProb = function(nrolls,
+                        ndicePerRoll,
+                        nsidesPerDie,
+                        eventList,
+                        orderMatters=FALSE)
 {
   errorVector = character()
-  errorVector = append(errorVector, .checkIntParam(ndice, "ndice", positive=TRUE))
-  errorVector = append(errorVector, .checkIntParam(nsides, "nsides", positive=TRUE))
+  errorVector = append(errorVector, .checkIntParam(nrolls, "nrolls", positive=TRUE))
+  errorVector = append(errorVector, .checkIntParam(ndicePerRoll, "ndicePerRoll", positive=TRUE))
+  errorVector = append(errorVector, .checkIntParam(nsidesPerDie, "nsidesPerDie", positive=TRUE))
 
-  if (length(outcomeList) > ndice)
+  if (length(eventList) > nrolls)
   {
-    errorVector = append(errorVector, "\n* The length of outcomeList must not be greater than ndice")
+    errorVector = append(errorVector, "\n* The length of eventList must not be greater than nrolls")
   }
-  if (orderMatters & length(outcomeList) != ndice)
+  if (orderMatters & length(eventList) != nrolls)
   {
-    errorVector = append(errorVector, "\n* If orderMatters is passed as TRUE, the length of outcomeList must equal\n  ndice (i.e., there must be an element of outcomeList for each die that\n  is to be rolled)")
+    errorVector = append(errorVector, "\n* If orderMatters is passed as TRUE, the length of eventList must equal\n  nrolls (i.e., there must be an element of eventList for each roll)")
   }
-  if (!all(sapply(outcomeList, is.numeric)))
+  if (!all(sapply(eventList, is.numeric)))
   {
-    errorVector = append(errorVector, "\n* All elements of outcomeList must be numeric vectors")
+    errorVector = append(errorVector, "\n* All elements of eventList must be numeric vectors")
   }
-  if (!all(as.logical(sapply(sapply(outcomeList, function(x) x == floor(x)), min))))
+  if (!all(as.logical(sapply(sapply(eventList, function(x) x == floor(x)), min))))
   {
-    errorVector = append(errorVector, "\n* All numbers in each element of outcomeList must be positive integers")
+    errorVector = append(errorVector, "\n* All numbers in each element of eventList must be positive integers")
   }
-  if (min(sapply(outcomeList, min)) < 1 ||
-      max(sapply(outcomeList, max)) > nsides)
+  if (min(sapply(eventList, min)) < ndicePerRoll ||
+      max(sapply(eventList, max)) > (ndicePerRoll * nsidesPerDie))
   {
-    errorVector = append(errorVector, "\n* All numbers in each element of outcomeList must be between 1 and\n  nsides")
+    errorVector = append(errorVector, "\n* All numbers in each element of eventList must be between ndicePerRoll\n  and (ndicePerRoll * nsidesPerDie)")
   }
   errorVector = append(errorVector, .checkLogicalParam(orderMatters, "orderMatters"))
 
@@ -79,27 +108,24 @@ getOutcomeProb = function(ndice,
     stop(errorVector)
   }
 
-  outcomeList = lapply(outcomeList, unique)
+  eventList = lapply(eventList, unique)
 
-  # If outcomeList doesn't have an element for each die roll, we add elements until it does;
-  # after this point, each element of outcomeList will constrain one die roll (but some of 
-  # those constraints may be simply {1:nsides}
+  # If eventList doesn't have an element for each roll, we add elements until it does;
+  # after this point, each element of eventList will constrain one roll (but some of 
+  # those constraints may be simply {min:max} for that roll--i.e., trivial constraints)
 
-  if (length(outcomeList) < ndice)
+  if (length(eventList) < nrolls)
   {
-    outcomeList = lapply(c(outcomeList, rep(0, ndice - length(outcomeList))), function(x){x = (if (max(x) == 0) 1:nsides else x)})    
+    eventList = lapply(c(eventList, rep(0, nrolls - length(eventList))), function(x){x = (if (max(x) == 0) ndicePerRoll:(ndicePerRoll*nsidesPerDie) else x)})    
   }
 
-  listElemLengths = sapply(outcomeList, length)
-
-  outcomeProb = prod(listElemLengths/nsides)
-
-  # If order matters, the outcomeProb we've just calculated is our answer; otherwise, 
-  # we need to do some more work
-
-  if (!orderMatters)
+  if (orderMatters)
   {
-    # We only calculate probabilities if each element of outcomeList is a length-1 vector
+    outcomeProb = prod(.getEventListProbs(ndicePerRoll, nsidesPerDie, eventList))
+  }
+  else # i.e., if (!orderMatters)
+  {
+    # We only calculate probabilities if each element of eventList is a length-1 vector
     # (i.e., a single number), e.g., {2, 3, 2}; if any element is longer than that, e.g.,
     # {2, {3, 4}, 2}, we call ourselves recursively on each list we can construct of only
     # length-1 vectors (e.g., in the example above we'd call ourselves on {2, 3, 2} and 
@@ -107,29 +133,30 @@ getOutcomeProb = function(ndice,
     # FALSE, account for all permutations of each of {2, 3, 2} and {2, 4, 2}) to arrive 
     # at our probability for the original list of {2, {3, 4}, 2}
 
+    listElemLengths = sapply(eventList, length)
     maxListElemLength = max(listElemLengths)
     if (maxListElemLength > 1)
     {
-      # Here we populate combMatrix with the elements of outcomeList to produce a 
+      # Here we populate combMatrix with the elements of eventList to produce a 
       # matrix each row of which is a selection of one element from each element of
-      # outcomeList; e.g., given the outcomeList {{1, 2}, {1, 2, 4}, 2}, we'd produce
+      # eventList; e.g., given the eventList {{1, 2}, {1, 2, 4}, 2}, we'd produce
       # a 6 x 3 matrix with rows {1, 1, 2}, {1, 2, 2}, {1, 4, 2}, {2, 1, 2}, {2, 2, 2},
       # and {2, 4, 2}
 
-      combMatrix = matrix(nrow = prod(listElemLengths), ncol = ndice)
-      if (ndice > 1)
+      combMatrix = matrix(nrow = prod(listElemLengths), ncol = nrolls)
+      if (nrolls > 1)
       {
-        for (i in 1:(ndice-1))
+        for (i in 1:(nrolls-1))
         {
-          combMatrix[,i] = rep(outcomeList[[i]], each = prod(listElemLengths[(i+1):ndice]))
+          combMatrix[,i] = rep(eventList[[i]], each = prod(listElemLengths[(i+1):nrolls]))
         }
       }
-      combMatrix[,ndice] = rep(outcomeList[[ndice]])
+      combMatrix[,nrolls] = rep(eventList[[nrolls]])
 
       # Next we eliminate all rows that are permutations of other rows (otherwise we
       # would over-count in the calculations that follow)
 
-      if (ndice > 1)
+      if (nrolls > 1)
       {
         combMatrix = unique(t(apply(combMatrix,1,sort)))
       }
@@ -139,27 +166,28 @@ getOutcomeProb = function(ndice,
       }
 
       # Now we make a recursive call for each row of combMatrix and sum the resulting
-      # probabilities to arrive at our probability for the original outcomeList
+      # probabilities to arrive at our probability for the original eventList
 
       sumOfProbs = sum(apply(combMatrix,
                              1,
-                             function(x) getOutcomeProb(ndice,
-                                                        nsides,
-                                                        as.list(x),
-                                                        orderMatters)))
+                             function(x) getEventProb(nrolls,
+                                                      ndicePerRoll,
+                                                      nsidesPerDie,
+                                                      as.list(x),
+                                                      orderMatters)))
       outcomeProb = sumOfProbs
     }
     else
     {
 
-      # If each element of outcomeList is a length-1 vector, we can convert outcomeList
-      # itself to a vector; then we multiply the outcomeProb we calculated above by a
-      # term that reflects all the ways to permute the elements of outcomeListAsVector
-      # (reflecting the fact that orderMatters was passed in as FALSE)
-
-      outcomeListAsVector = sapply(outcomeList, max)
-
-      outcomeProb = outcomeProb * factorial(ndice) / prod(factorial(table(outcomeListAsVector)))
+      # If each element of eventList is a length-1 vector, we can convert eventList
+      # itself to a vector; then we calculate the probability of getting the specific
+      # set of outcomes specified by eventList in any order (reflecting the fact that 
+      # orderMatters was passed in as FALSE)
+     
+      eventListAsVector = sapply(eventList, max)
+      eventListProb = prod(.getEventListProbs(ndicePerRoll, nsidesPerDie, eventListAsVector))
+      outcomeProb = eventListProb * factorial(nrolls) / prod(factorial(table(eventListAsVector)))
     }
   }
 
@@ -170,9 +198,9 @@ getOutcomeProb = function(ndice,
 # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
-getTotalProbs = function(ndice,
-                         nsides,
-                         nkept = ndice,
+getTotalProbs = function(ndicePerRoll,
+                         nsidesPerDie,
+                         nkept = ndicePerRoll,
                          totalModifier = 0,
                          perDieModifier = 0,
                          perDieMinOfOne = TRUE)
@@ -181,12 +209,12 @@ getTotalProbs = function(ndice,
   # We begin with preliminary error-checking
 
   errorVector = vector(mode = "character", length = 0)
-  errorVector = append(errorVector, .checkIntParam(ndice, "ndice", positive=TRUE))
-  errorVector = append(errorVector, .checkIntParam(nsides, "nsides", positive=TRUE))
+  errorVector = append(errorVector, .checkIntParam(ndicePerRoll, "ndicePerRoll", positive=TRUE))
+  errorVector = append(errorVector, .checkIntParam(nsidesPerDie, "nsidesPerDie", positive=TRUE))
   errorVector = append(errorVector, .checkIntParam(nkept, "nkept", positive=TRUE))
-  if (nkept > ndice)
+  if (nkept > ndicePerRoll)
   {
-    errorVector = append(errorVector, "\n* nkept must not be greater than ndice")
+    errorVector = append(errorVector, "\n* nkept must not be greater than ndicePerRoll")
   }
   errorVector = append(errorVector, .checkIntParam(totalModifier, "totalModifier"))
   errorVector = append(errorVector, .checkIntParam(perDieModifier, "perDieModifier"))
@@ -197,8 +225,8 @@ getTotalProbs = function(ndice,
     stop(errorVector)
   }
 
-  numOutcomes = nsides^ndice
-  numDiceToDrop = ndice - nkept
+  numOutcomes = nsidesPerDie^ndicePerRoll
+  numDiceToDrop = ndicePerRoll - nkept
   currNumArrangements = 0
   
   totalModifier = totalModifier + (perDieModifier * nkept)
@@ -206,15 +234,15 @@ getTotalProbs = function(ndice,
   currentTotal = 0
 
   vectorOfTotals = as.integer((nkept + totalModifier) :
-                                        ((nsides * nkept) + totalModifier))
+                                        ((nsidesPerDie * nkept) + totalModifier))
 
   numPossibleTotals = length(vectorOfTotals)
 
 
   # totalTallyMatrix is used to track the number of times we see every possible outcome total,
   # which we will use to produce the probabilities of every total (e.g., for the 3d6 case we 
-  # see a total of 27 times, so the probability of a total of 10 is 27/216 = .125, while for 
-  # the 5d6 drop 2 case we see a total of 13 1055 time, so the probability of a total of 13 
+  # see 10 as a total 27 times, so the probability of a total of 10 is 27/216 = .125, while for
+  # the 5d6 drop 2 case we see 13 as a total 1055 times, so the probability of a total of 13
   # is 1055/7776 = .1356739).
 
   totalTallyMatrix = matrix(data = c(vectorOfTotals,
@@ -231,7 +259,7 @@ getTotalProbs = function(ndice,
   # e.g., in the 5d6 drop 2 case, if our sorted die rolls are {2 4 4 5 6}, c is 4).  We'll call
   # all dice with this value the "c" dice.
 
-  for (c in 1 : nsides)
+  for (c in 1 : nsidesPerDie)
   {
 
     # d is the number of dice whose values are less than c (e.g., in the 5d6 drop 2 case, if we
@@ -282,9 +310,9 @@ getTotalProbs = function(ndice,
         numCs = (k + numDiceToDrop - d)
         numHs = (nkept - k)
         
-        # NOTE: this formula could overflow if ndice gets large, but I think the function
+        # NOTE: this formula could overflow if ndicePerRoll gets large, but I think the function
         # would keel over before reaching that point anyway; if not, consider lfactorial() 
-        numArrangementsOfDice = (factorial(ndice) / 
+        numArrangementsOfDice = (factorial(ndicePerRoll) / 
                                  (factorial(d) * factorial(numCs) * factorial(numHs)))
 
         # Next: in this loop the value of c is fixed, but there are many "l" dice values that
@@ -312,7 +340,7 @@ getTotalProbs = function(ndice,
         # (e.g., in the 3d6 case, the outcome {1, 1, 2} has three permutations) and use this
         # information to calculate the probability of every possible outcome.
 
-        rangeOfHs = nsides - c
+        rangeOfHs = nsidesPerDie - c
 
         if (k == nkept)
         {
@@ -329,7 +357,7 @@ getTotalProbs = function(ndice,
 
             hCombs = combinations(n = rangeOfHs,
                                   r = numHs,
-                                  v = ((c+1) : nsides),
+                                  v = ((c+1) : nsidesPerDie),
                                   repeats.allowed = TRUE)
             hPermCounts = apply(hCombs, 1, function(x) factorial(numHs)/prod(factorial(table(x))))
 

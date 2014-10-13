@@ -1,0 +1,6 @@
+3499fd5539fa9dc3506785ead8afc06e *DESCRIPTION
+0cbcd863f562ab5f1edb32c3b63d5ec2 *NAMESPACE
+ac9fe29569dfb4f4adc15f972a795c8b *R/dice.R
+0270961ad0c2a91586cb41013c54bf28 *man/dice-package.Rd
+69dbc5db31d2c50e441327510d95f203 *man/getEventProb.Rd
+8f5020c22597c94c2412355ff40a9455 *man/getSumProbs.Rd

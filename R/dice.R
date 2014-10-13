@@ -39,7 +39,7 @@
 
 .getEventListProbs = function(ndicePerRoll, nsidesPerDie, eventList)
 {
-  probs = getTotalProbs(ndicePerRoll, nsidesPerDie)$probabilities
+  probs = getSumProbs(ndicePerRoll, nsidesPerDie)$probabilities
 
   # On the assumption that eventList has length nrolls (which is safe since this is a 
   # private helper function), we calculate the probability of getting an acceptable 
@@ -198,12 +198,13 @@ getEventProb = function(nrolls,
 # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
-getTotalProbs = function(ndicePerRoll,
-                         nsidesPerDie,
-                         nkept = ndicePerRoll,
-                         totalModifier = 0,
-                         perDieModifier = 0,
-                         perDieMinOfOne = TRUE)
+getSumProbs = function(ndicePerRoll,
+                       nsidesPerDie,
+                       nkept = ndicePerRoll,
+                       dropLowest = TRUE,
+                       sumModifier = 0,
+                       perDieModifier = 0,
+                       perDieMinOfOne = TRUE)
 {
 
   # We begin with preliminary error-checking
@@ -216,7 +217,7 @@ getTotalProbs = function(ndicePerRoll,
   {
     errorVector = append(errorVector, "\n* nkept must not be greater than ndicePerRoll")
   }
-  errorVector = append(errorVector, .checkIntParam(totalModifier, "totalModifier"))
+  errorVector = append(errorVector, .checkIntParam(sumModifier, "sumModifier"))
   errorVector = append(errorVector, .checkIntParam(perDieModifier, "perDieModifier"))
   errorVector = append(errorVector, .checkLogicalParam(perDieMinOfOne, "perDieMinOfOne"))
 
@@ -229,145 +230,159 @@ getTotalProbs = function(ndicePerRoll,
   numDiceToDrop = ndicePerRoll - nkept
   currNumArrangements = 0
   
-  totalModifier = totalModifier + (perDieModifier * nkept)
+  sumModifier = sumModifier + (perDieModifier * nkept)
   
-  currentTotal = 0
+  currentSum = 0
 
-  vectorOfTotals = as.integer((nkept + totalModifier) :
-                                        ((nsidesPerDie * nkept) + totalModifier))
+  vectorOfSums = as.integer((nkept + sumModifier) :
+                                        ((nsidesPerDie * nkept) + sumModifier))
 
-  numPossibleTotals = length(vectorOfTotals)
+  numPossibleSums = length(vectorOfSums)
 
 
-  # totalTallyMatrix is used to track the number of times we see every possible outcome total,
-  # which we will use to produce the probabilities of every total (e.g., for the 3d6 case we 
-  # see 10 as a total 27 times, so the probability of a total of 10 is 27/216 = .125, while for
-  # the 5d6 drop 2 case we see 13 as a total 1055 times, so the probability of a total of 13
+  # sumTallyMatrix is used to track the number of times we see every possible outcome sum,
+  # which we will use to produce the probabilities of every sum (e.g., for the 3d6 case we 
+  # see 10 as a sum 27 times, so the probability of a sum of 10 is 27/216 = .125, while for
+  # the 5d6 drop 2 case we see 13 as a sum 1055 times, so the probability of a sum of 13
   # is 1055/7776 = .1356739).
 
-  totalTallyMatrix = matrix(data = c(vectorOfTotals,
-                                     as.integer(rep.int(0, numPossibleTotals)),
-                                     as.integer(rep.int(0, numPossibleTotals))),
-                            nrow = numPossibleTotals,
-                            ncol = 3,
-                            dimnames = list(NULL,
-                                            c("Total",
-                                              "Probability",
-                                              "Ways to Roll")))
+  sumTallyMatrix = matrix(data = c(vectorOfSums,
+                                   as.integer(rep.int(0, numPossibleSums)),
+                                   as.integer(rep.int(0, numPossibleSums))),
+                          nrow = numPossibleSums,
+                          ncol = 3,
+                          dimnames = list(NULL,
+                                          c("Sum",
+                                            "Probability",
+                                            "Ways to Roll")))
 
-  # c is the lowest die roll value that will be kept (i.e., it is the die roll "cut-off" value:
-  # e.g., in the 5d6 drop 2 case, if our sorted die rolls are {2 4 4 5 6}, c is 4).  We'll call
-  # all dice with this value the "c" dice.
+  # boundaryVal is the most extreme die-roll value that will be kept (i.e., the die-roll "boundary"
+  # value: e.g., for 5d6 drop lowest two, if our sorted die rolls are {3 4 4 5 6}, boundaryVal is 4).
+  # We'll call all dice with this value the "b" dice (because they're on the [b]oundary).
 
-  for (c in 1 : nsidesPerDie)
+  for (boundaryVal in 1 : nsidesPerDie)
   {
 
-    # d is the number of dice whose values are less than c (e.g., in the 5d6 drop 2 case, if we
-    # roll {1 3 4 5 6}, c is 4, so d is 2).  We'll call these dice the "l" dice (since they're 
-    # "lower" than c).  NOTE: the letter d represents the number of dice whose values are less
-    # than c, and the letter l is our _name_ for this group of dice--l is *not* a number of
-    # dice.  NOTE: we have the embedded if clause in our for loop declaration because if c is
-    # 1, there *cannot* be any dice whose values are lower than c, and hence d can only be 0.
-    # The following loop syntax might look suspicious, but we *do* want to iterate once in the 
-    # c == 1 case (in which case there are no dice with lower values, so d must be 0).
+    # numOs is the number of dice whose values are outside of boundaryVal (e.g., for 5d6 drop lowest 
+    # two, if we roll {3 4 4 5 6}, boundaryVal is 4, so numOs is 1).  We'll call these dice the "o"
+    # dice (because they're [o]utside our boundary).  
+    # NOTE: We have an embedded if clause in our for-loop declaration because if we're dropping lowest 
+    # and boundaryVal is 1 or we're dropping highest and boundaryVal is nsidesPerDie, there cannot be 
+    # any dice whose values are outside of boundaryVal, and hence numOs can only be 0.  The following 
+    # loop syntax might look suspicious, but we *do* want to iterate once in these two cases, as well
+    # as in the case where numDiceToDrop is 0 (and in all three such cases, numOs will be 0).
 
-    for (d in 0 : (if (c == 1) 0 else numDiceToDrop))
+    for (numOs in 0 : (if ((dropLowest && boundaryVal == 1) ||
+                           (!dropLowest && boundaryVal == nsidesPerDie)) 0 else numDiceToDrop))
     {
 
-      # k is the number of c's that will be kept (e.g., in the 5d6 drop 2 case, if we roll
-      # {2 4 4 5 6}, k is 1, because one of the two 4's will be kept).
-      # Now, since we're discarding numDiceToDrop dice (including the d l's), we'll discard 
-      # (numDiceToDrop - d) of the c's and keep k of them, and thus the total number of c's is 
-      # (k + numDiceToDrop - d).  
-      # NOTE: hence, the number of dice whose values exceed c is (nkept - k).  We will
-      # call these higher dice the "h" dice (since they're "higher" than c).  As noted above,
-      # the letter h is our _name_ for this group of dice--h is *not* number of dice.
+      # numBsKept is the number of b's that will be kept (e.g., for 5d6 drop lowest two, if we roll
+      # {3 4 4 5 6}, numBsKept is 1, because one of the two 4's will be kept).
+      # Now, since we're discarding numDiceToDrop dice (including the numOs o's), we'll discard 
+      # (numDiceToDrop - numOs) of the b's and keep numBsKept of them, and thus the total number of
+      # b's is (numBsKept + numDiceToDrop - numOs).  NOTE: Hence, the number of dice whose values
+      # exceed boundaryVal is (nkept - numBsKept).  We will call these higher dice the "i" dice (since
+      # they're "inside" our boundary).
 
-      for (k in 1 : nkept)
+      for (numBsKept in 1 : nkept)
       {
 
         # By this part of the function, we've specified a class of outcomes identified by their 
-        # (c, d, k) values--i.e., every outcome in this class has the following properties...
-        # 1). the die roll cut-off value c; 
-        # 2). d "l" dice, whose values are lower than c (all of which will be dropped); and
-        # 3). k "c" dice that will be kept.  Furthermore, each such outcome has
-        # 4). (k + numDiceToDrop - d) "c" dice in total, and 
-        # 5). (nkept - k) "h" dice, whose values are higher than c.
-        # Now, we're interested in totals for the various outcomes in this class, and these 
-        # totals don't depend upon the order in which the various values appear in our sequence
-        # of rolls; i.e., multiple outcomes in this class will have the same total but have the
-        # l's, the c's, and the h's appear at different places in the sequence of rolls.  To 
-        # account for this, we need to multiply each distinct outcome by the number of times
-        # outcomes identical to it but for the order of appearance of the l's, c's, and h's
-        # (NOTE: we do not account here for the orders *within* these groups--we account for the
-        # order within the l's immediately below, and we account for the order within the h's
-        # in the section of the code in which we enumerate the h's).  For now, we will define a
-        # term by which to multiply each total we find; the term is a result of the multinomial
-        # theorem's combinatoric interpretation as the number of ways to put n distinct objects
-        # (in this case, our die rolls) into 3 bins of size d, (k + numDiceToDrop - d), and 
-        # (nkept - k), corresponding to the number of l's, c's, and h's in this class:
+        # (boundaryVal, numOs, numBsKept) values--i.e., every outcome in this class has the
+        # following properties:
+        # 1). the die-roll boundary value boundaryVal; 
+        # 2). numOs "o" dice, whose values are outside boundaryVal and will be dropped; and
+        # 3). numBsKept "b" dice that will be kept.  Furthermore, each such outcome has
+        # 4). (numBsKept + numDiceToDrop - numOs) "b" dice in total, and 
+        # 5). (nkept - numBsKept) "i" dice, whose values are inside boundaryVal.
 
-        numCs = (k + numDiceToDrop - d)
-        numHs = (nkept - k)
-        
-        # NOTE: this formula could overflow if ndicePerRoll gets large, but I think the function
-        # would keel over before reaching that point anyway; if not, consider lfactorial() 
+        numBs = (numBsKept + numDiceToDrop - numOs)
+        numIs = (nkept - numBsKept)
+
+paste("\n\nIn this class, boundaryVal is ", boundaryVal, ", numOs is ", numOs,", numBsKept is", numBsKept, ", numBs is ", numBs, ", and numIs is ", numIs, "\n", sep="")
+
+        # Now, we're interested in sums for the various outcomes in this class, and these sums
+        # don't depend upon the order in which the various values appear in our sequence of
+        # rolls; i.e., multiple outcomes in this class will have the same values but have the o's,
+        # the b's, and the i's appear at different places in the sequence of rolls.  To account
+        # for this, we need to multiply each distinct outcome by the number of other outcomes
+        # that are identical to it except for the order in which the o's, b's, and i's occur
+        # (NOTE: the orders *within* these groups are accounted for below: order within the o's 
+        # is accounted for immediately below, and we account for the order within the i's in the
+        # section of the code in which we enumerate the i's).  For now, we will define a term by
+        # which to multiply each sum we find; this term is a result of the multinomial theorem's 
+        # combinatoric interpretation as the number of ways to put n distinct objects (in this 
+        # case, our die rolls) into 3 bins of size numOs, (numBsKept + numDiceToDrop - numOs), 
+        # and (nkept - numBsKept), corresponding to the number of o's, b's, and i's in the class:
+
         numArrangementsOfDice = (factorial(ndicePerRoll) / 
-                                 (factorial(d) * factorial(numCs) * factorial(numHs)))
+                                 (factorial(numOs) * factorial(numBs) * factorial(numIs)))
 
-        # Next: in this loop the value of c is fixed, but there are many "l" dice values that
-        # outcomes in this class might have; since we don't care about these values, we need to 
-        # increase our multiplicity term to account for the outcomes that will be identical 
-        # to this iteration's distinct outcome but for the values (and order) of the l's:
+        # [NOTE: The formula above could overflow if ndicePerRoll gets large, in which case we may
+        #  consider using lfactorial()--but I think the function would keel over before then anyway]
 
-        numArrangementsOfDice = numArrangementsOfDice * (c - 1)^d
+        # Because we support dropping lowest or highest values, we define convenient variables
+        # to allow us to operate over appropriate ranges for the rest of this function
 
-        # Now that we've accounted for sorting the values into three bins and for all the 
-        # possible l values that are immaterial to our calculations, we can treat our outcome 
-        # class as sorted into groups and can focus our attention on the k c's we keep and the 
-        # h's.  The k c's will contribute a known amount to our total for all outcomes in this 
-        # class (viz., k * c); but the h's will contribute various amounts, depending on their
-        # values.  We next turn to determining the possible distinct outcomes for this class by
-        # enumerating the possible values for the h's.  We will proceed as follows:
-        # rangeOfHs is the distance between the smallest and largest possible h values for this
+		innerBoundary = if (dropLowest) nsidesPerDie else 1
+		outerBoundary = if (dropLowest) 1 else nsidesPerDie
+        rangeOfOVals = abs(boundaryVal - outerBoundary)
+        rangeOfIVals = abs(boundaryVal - innerBoundary)
+        possibleIValsVec = if (dropLowest) ((boundaryVal+1) : nsidesPerDie) else (1 : (boundaryVal-1))
+
+        # Next: The value of boundaryVal is fixed for this loop, but there are many "o" dice values
+        # that outcomes in this class might have; because we don't care about these values, we need
+        # to increase our multiplicity term to account for the outcomes that will be identical 
+        # to this iteration's distinct outcome but for the values (and order) of the o's:
+
+        numArrangementsOfDice = numArrangementsOfDice * rangeOfOVals^numOs
+
+        # Now that we've accounted for sorting the values into three bins and for all the possible
+        # "o" values that are immaterial to our calculations, we can treat our outcome class as
+        # sorted into groups and can focus our attention on the numBsKept b's we keep and the 
+        # i's.  The numBsKept b's will contribute a known amount to our sum for all outcomes in 
+        # this class (viz., numBsKept * boundaryVal); but the i's will contribute various amounts, 
+        # depending on their values.  So now we turn to determining the possible distinct outcomes 
+        # for this class by enumerating the possible values for the i's.  We will work as follows:
+        # rangeOfIVals is the distance between the smallest and largest possible "i" values for this
         # class of outcomes, and we use it to determine the number of distinct outcomes for this
-        # class, which is given by rangeOfHs^numHs.  We create an outcomeMatrix with as many
-        # rows as there are distinct outcomes for this class and nkept columns: each element
-        # in a row corresponds to a die roll value, and the sum of the row elements is the
-        # total for that distinct outcome.  We populate outcomeMatrix in such a way that all
-        # possible values for the h's in this class (and hence all distinct outcomes) are
-        # accounted for.  We then calculate the number of permutations of each distinct outcome
-        # (e.g., in the 3d6 case, the outcome {1, 1, 2} has three permutations) and use this
-        # information to calculate the probability of every possible outcome.
+        # class, which is given by rangeOfIVals^numIs.  We create an outcomeMatrix with as many
+        # rows as there are distinct outcomes for this class and nkept columns; each element
+        # in a row corresponds to a die-roll value, and the sum of the row elements is the
+        # sum for that distinct outcome.  We populate outcomeMatrix with a row for every possible 
+        # value for the i's in this class (and hence all distinct outcomes in the class).  We then
+        # calculate the number of permutations of each distinct outcome (e.g., in the 3d6 case,
+        # the outcome {1, 1, 2} has three permutations) and use this information to calculate the 
+        # probability of every possible outcome in this class.
 
-        rangeOfHs = nsidesPerDie - c
-
-        if (k == nkept)
+        if (numBsKept == nkept)
         {
-          currentTotal = (k * c) + totalModifier
-          totalTallyMatrix[currentTotal - totalModifier - (nkept - 1), 2] = totalTallyMatrix[currentTotal - totalModifier - (nkept - 1), 2] + numArrangementsOfDice
+          currentSum = (numBsKept * boundaryVal) + sumModifier
+          # We adjust row index by (nkept - 1) so that, e.g., a 3d6 tally starts in row 1, not 3
+          sumTallyMatrix[currentSum - sumModifier - (nkept - 1), 2] = sumTallyMatrix[currentSum - sumModifier - (nkept - 1), 2] + numArrangementsOfDice
         }
         else
         {
-          outcomeMatrix = matrix(nrow = choose((rangeOfHs + numHs - 1), numHs), ncol = nkept)
+          outcomeMatrix = matrix(nrow = choose((rangeOfIVals + numIs - 1), numIs), ncol = nkept)
 
           if (dim(outcomeMatrix)[1] > 0)
           {
-            outcomeMatrix[,1:k] = c
 
-            hCombs = combinations(n = rangeOfHs,
-                                  r = numHs,
-                                  v = ((c+1) : nsidesPerDie),
+            outcomeMatrix[,1 : numBsKept] = boundaryVal
+
+            hCombs = combinations(n = rangeOfIVals,
+                                  r = numIs,
+                                  v = possibleIValsVec,
                                   repeats.allowed = TRUE)
-            hPermCounts = apply(hCombs, 1, function(x) factorial(numHs)/prod(factorial(table(x))))
+            hPermCounts = apply(hCombs, 1, function(x) factorial(numIs)/prod(factorial(table(x))))
 
-            outcomeMatrix[,((k+1) : nkept)] = hCombs
+            outcomeMatrix[,(numBsKept+1) : nkept] = hCombs
 
-            for (j in 1 : dim(outcomeMatrix)[1])
+            for (rowNum in 1 : nrow(outcomeMatrix))
             {
-              currentTotal = sum(outcomeMatrix[j,]) + totalModifier
-              currNumArrangements = numArrangementsOfDice * hPermCounts[j]
-              totalTallyMatrix[currentTotal - totalModifier - (nkept - 1), 2] = totalTallyMatrix[currentTotal - totalModifier - (nkept - 1), 2] + currNumArrangements
+              currentSum = sum(outcomeMatrix[rowNum,]) + sumModifier
+              currNumArrangements = numArrangementsOfDice * hPermCounts[rowNum]
+              sumTallyMatrix[currentSum - sumModifier - (nkept - 1), 2] = sumTallyMatrix[currentSum - sumModifier - (nkept - 1), 2] + currNumArrangements
             }
           }
         }
@@ -377,27 +392,27 @@ getTotalProbs = function(ndicePerRoll,
 
   if (perDieMinOfOne)
   {
-    if (totalTallyMatrix[numPossibleTotals,1] <= nkept)
+    if (sumTallyMatrix[numPossibleSums,1] <= nkept)
     {
-      totalTallyMatrix = matrix(data = c(nkept, numOutcomes, numOutcomes),
-                                  nrow = 1,
-                                  ncol = 3,
-                                  dimnames = list(NULL,
-                                                  c("  Total  ","  Probability  ", "  Ways to Roll  ")))
+      sumTallyMatrix = matrix(data = c(nkept, numOutcomes, numOutcomes),
+                              nrow = 1,
+                              ncol = 3,
+                              dimnames = list(NULL,
+                                              c("  Sum  ","  Probability  ", "  Ways to Roll  ")))
     }
     else
     {
-      extraWaysToRollMin = sum(totalTallyMatrix[totalTallyMatrix[,1] < nkept,2])
-      totalTallyMatrix = totalTallyMatrix[totalTallyMatrix[,1] >= nkept,]
-      totalTallyMatrix[1,2] = totalTallyMatrix[1,2] + extraWaysToRollMin
+      extraWaysToRollMin = sum(sumTallyMatrix[sumTallyMatrix[,1] < nkept,2])
+      sumTallyMatrix = sumTallyMatrix[sumTallyMatrix[,1] >= nkept,]
+      sumTallyMatrix[1,2] = sumTallyMatrix[1,2] + extraWaysToRollMin
     }
   }
 
-  totalTallyMatrix[,3] = totalTallyMatrix[,2]
-  totalTallyMatrix[,2] = totalTallyMatrix[,2] / numOutcomes
+  sumTallyMatrix[,3] = sumTallyMatrix[,2]
+  sumTallyMatrix[,2] = sumTallyMatrix[,2] / numOutcomes
 
-  overallAverageTotal = sum(totalTallyMatrix[,1] * totalTallyMatrix[,3] / numOutcomes)
+  overallAverageSum = sum(sumTallyMatrix[,1] * sumTallyMatrix[,3] / numOutcomes)
 
   
-  list(probabilities = totalTallyMatrix, average = overallAverageTotal)
+  list(probabilities = sumTallyMatrix, average = overallAverageSum)
 }
